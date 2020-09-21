@@ -22,16 +22,10 @@
 //do some modify
 //support all cpu abi such as x86, x86_64
 //support filename search if filename is not start with '/'
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <elf.h>
-#include <android/log.h>
 
-#define TAG_NAME    "Q296488320"
+#include "dlfcn_nougat.h"
+
+#define TAG_NAME    "lyh222222222"
 
 #define log_info(fmt, args...) __android_log_print(ANDROID_LOG_INFO, TAG_NAME, (const char *) fmt, ##args)
 #define log_err(...) __android_log_print(ANDROID_LOG_ERROR, TAG_NAME, __VA_ARGS__)
@@ -73,9 +67,11 @@ int fake_dlclose(void *handle) {
     return 0;
 }
 
+#define fatal(fmt, args...) do { log_err(fmt,##args); goto err_exit; } while(0)
+
 /* flags are ignored */
 void *fake_dlopen_with_path(const char *libpath, int flags) {
-    log_err("fake_dlopen_with_path 路径 为 %s",libpath);
+    log_err("fake_dlopen_with_path 路径 为 %s", libpath);
     FILE *maps;
     char buff[256];
     struct ctx *ctx = 0;
@@ -84,30 +80,68 @@ void *fake_dlopen_with_path(const char *libpath, int flags) {
     char *shoff;
     Elf_Ehdr *elf = (Elf_Ehdr *) MAP_FAILED;
 
-#define fatal(fmt, args...) do { log_err(fmt,##args); goto err_exit; } while(0)
 
     maps = fopen("/proc/self/maps", "r");
-    if (!maps) fatal("打开 maps文件失败 ");
 
-    while (!found && fgets(buff, sizeof(buff), maps))
-        if (strstr(buff, "r-xp") && strstr(buff, libpath)) found = 1;
+    if (!maps) {
+        log_err("打开 maps文件失败 ");
+        if (fd >= 0) close(fd);
+        if (elf != MAP_FAILED) munmap(elf, size);
+        fake_dlclose(ctx);
+    }
+
+    const vector<string> &vector = parse::Split(libpath, "|");
+    if (vector.size() == 2) {
+        while (!found && fgets(buff, sizeof(buff), maps)) {
+            if (strstr(buff, "r-xp") ) {
+                //如果包含| 并且规则匹配
+                if (strstr(buff, vector.at(0).c_str()) && strstr(buff, vector.at(1).c_str())) {
+//c0940000-c09b7000 r-xp 00000000 fc:08 1229975                            /data/app/com.kejian.one-Ym849UWJxpgSsC27ctZ8CA==/lib/arm/libTest.so
+                    auto *pString = new string(buff);
+
+                    string path = pString->substr(pString->find("/data/app/"));
+
+                    //去掉回车 坑！！！！！
+                    size_t n = path.find_last_not_of("\r\n\t");
+                    if (n != string::npos){
+                        path.erase(n + 1, path.size() - n);
+                    }
+
+                    libpath = path.c_str();
+                    found = 1;
+                }
+            }
+        }
+    } else {
+        while (!found && fgets(buff, sizeof(buff), maps)) {
+//          log_err("内存文件的和名字  %s  ", buff);
+            if (strstr(buff, "r-xp") && strstr(buff, libpath)) {
+                found = 1;
+            }
+        }
+    }
 
     fclose(maps);
 
-    if (!found) fatal("%s not found in my userspace", libpath);
+    if (!found) log_err("%s 没找到指定路径 ", libpath);
 
-    if (sscanf(buff, "%lx", &load_addr) != 1)
-        fatal("failed to read load address for %s", libpath);
 
-    log_info("%s loaded in Android at 0x%08lx", libpath, load_addr);
+    if (sscanf(buff, "%lx", &load_addr) != 1) fatal("failed to read load address for %s", libpath);
+
+
 
     /* Now, mmap the same library once again */
 
     fd = open(libpath, O_RDONLY);
-    if (fd < 0) fatal("failed to open %s", libpath);
+    if (fd < 0) fatal("打开文件失败 %s  %d", libpath, fd);
+//    else
+//        log_info("打开文件成功 %s", libpath);
+
 
     size = lseek(fd, 0, SEEK_END);
     if (size <= 0) fatal("lseek() failed for %s", libpath);
+
+
 
     elf = (Elf_Ehdr *) mmap(0, size, PROT_READ, MAP_SHARED, fd, 0);
     close(fd);
@@ -115,8 +149,11 @@ void *fake_dlopen_with_path(const char *libpath, int flags) {
 
     if (elf == MAP_FAILED) fatal("mmap() failed for %s", libpath);
 
+
     ctx = (struct ctx *) calloc(1, sizeof(struct ctx));
     if (!ctx) fatal("no memory for %s", libpath);
+
+
 
     ctx->load_addr = (void *) load_addr;
     shoff = ((char *) elf) + elf->e_shoff;
@@ -176,24 +213,28 @@ static const char *const kSystemLibDir = "/system/lib64/";
 static const char *const kOdmLibDir = "/odm/lib64/";
 static const char *const kVendorLibDir = "/vendor/lib64/";
 #else
-static const char* const kSystemLibDir     = "/system/lib/";
-static const char* const kOdmLibDir        = "/odm/lib/";
-static const char* const kVendorLibDir     = "/vendor/lib/";
+static const char *const kSystemLibDir = "/system/lib/";
+static const char *const kOdmLibDir = "/odm/lib/";
+static const char *const kVendorLibDir = "/vendor/lib/";
 
 
 #endif
 
+
 void *fake_dlopen(const char *filename, int flags) {
     log_err("开始执行fake_dlopen");
-    if (strlen(filename) > 0 && filename[0] == '/') {
+    if ((strlen(filename) > 0 && filename[0] == '/') || (strstr(filename, "|") != nullptr)) {
         return fake_dlopen_with_path(filename, flags);
     } else {
+
+        //尝试对系统So路径进行拼接
         char buf[512] = {0};
         void *handle = NULL;
         //sysmtem
+        ///system/lib/com.kejian.one|libTest.so
         strcpy(buf, kSystemLibDir);
         strcat(buf, filename);
-        //log_err("路径变为 %s",buf);
+        //  log_err("路径变为 %s", buf);
         handle = fake_dlopen_with_path(buf, flags);
         if (handle) {
             return handle;
@@ -219,9 +260,13 @@ void *fake_dlopen(const char *filename, int flags) {
 
         return fake_dlopen_with_path(filename, flags);
     }
+
+
 }
 
 void *fake_dlsym(void *handle, const char *name) {
+    log_err("开始 执行  fake_dlsym");
+
     int k;
     struct ctx *ctx = (struct ctx *) handle;
     Elf_Sym *sym = (Elf_Sym *) ctx->dynsym;
@@ -229,13 +274,12 @@ void *fake_dlsym(void *handle, const char *name) {
 
     for (k = 0; k < ctx->nsyms; k++, sym++)
         if (strcmp(strings + sym->st_name, name) == 0) {
-            /*  NB: sym->st_value is an offset into the section for relocatables,
-            but a VMA for shared libs or exe files, so we have to subtract the bias */
             void *ret = (char *) ctx->load_addr + sym->st_value - ctx->bias;
-            log_info("%s found at %p", name, ret);
+            log_err("%s 找到对应函数 地址是 %p", name, ret);
             return ret;
         }
     return 0;
+
 }
 
 

@@ -22,14 +22,22 @@ add_library( # Sets the name of the library. (我们用C/C++ 文件生成的 动
              # Sets the library as a shared library.(表明用于共享的 动态库 so结尾)
              SHARED
 
-             # Provides a relative path to your source file(s).(
-             # 这里就是 我们的 C的 文件的 路径 可以修改 有多少个 文件
-             # 就添加多个 文件 如果 需要 生成 多个 so就需要 添加多个 add_library)
-             src/main/jni/dlfcn_nougat.c
-             src/main/jni/dlfcn_compat.c
-             src/main/jni/inlineHook.c
-             src/main/jni/relocate.c
-             src/main/jni/main.c )
+            src/main/jni/utils/parse.cpp
+            src/main/jni/utils/HLua.cpp
+            src/main/jni/main.cpp
+
+            #        Substrate
+#            src/main/jni/Substrate/hde64.c
+#            src/main/jni/Substrate/SubstrateDebug.cpp
+#            src/main/jni/Substrate/SubstrateHook.cpp
+#            src/main/jni/Substrate/SubstratePosixMemory.cpp
+
+            #        inlineHook
+            src/main/jni/dlfc/dlfcn_nougat.cpp
+            src/main/jni/dlfc/dlfcn_compat.cpp
+            src/main/jni/inlineHook/inlineHook.cpp
+            src/main/jni/inlineHook/relocate.cpp
+        )
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by

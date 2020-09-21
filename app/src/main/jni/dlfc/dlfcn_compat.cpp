@@ -1,5 +1,6 @@
-#include "include/dlfcn_compat.h"
-#include "include/dlfcn_nougat.h"
+#include "dlfcn_compat.h"
+#include "dlfcn_nougat.h"
+#include "dlfcn_nougat.h"
 #include <sys/system_properties.h>
 #include <stdlib.h>
 #include <dlfcn.h>
